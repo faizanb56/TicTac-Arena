@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TicTac Arena - Elite Edition</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.5.1/dist/confetti.browser.min.js"></script>
+    <style>
+        :root {
+            --neon-blue: #00d2ff;
+            --neon-purple: #9d50bb;
+            --bg-dark: #050505;
+        }
+
+        body {
+            background-color: var(--bg-dark);
+            color: #ffffff;
+            font-family: 'Inter', sans-serif;
+            overflow-x: hidden;
+            position: relative;
+            min-height: 100vh;
+        }
+
+        /* Side Glowing Lines */
+        body::before, body::after {
+            content: '';
+            position: fixed;
+            top: 0;
+            bottom: 0;
+            width: 4px;
+            background: var(--neon-blue);
+            box-shadow: 0 0 20px var(--neon-blue), 0 0 40px var(--neon-blue);
+            z-index: 10;
+        }
+        body::before { left: 0; }
+        body::after { right: 0; }
+
+        .glow-text-white {
+            color: #ffffff;
+            text-shadow: 0 0 10px rgba(255, 255, 255, 0.8), 
+                         0 0 20px rgba(255, 255, 255, 0.5);
+        }
+
+        .arena-container {
+            background: radial-gradient(circle at center, #111 0%, #050505 100%);
+            border: 1px solid rgba(0, 210, 255, 0.2);
+            box-shadow: 0 0 50px rgba(0, 0, 0, 0.5);
+        }
+
+        .cell {
+            aspect-ratio: 1/1;
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2.5rem;
+            font-weight: 800;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .cell:hover:not(.occupied) {
+            background: rgba(0, 210, 255, 0.1);
+            border-color: var(--neon-blue);
+            box-shadow: inset 0 0 15px rgba(0, 210, 255, 0.2);
+        }
+
+        .cell.x-mark {
+            color: var(--neon-blue);
+            text-shadow: 0 0 15px var(--neon-blue);
+        }
+
+        .cell.o-mark {
+            color: #ff007f;
+            text-shadow: 0 0 15px #ff007f;
+        }
+
+        .cell.occupied { cursor: default; }
+
+        .winning-cell {
+            background: rgba(255, 255, 255, 0.1) !important;
+            animation: win-pulse 1s infinite alternate;
+            z-index: 5;
+        }
+
+        @keyframes win-pulse {
+            from { transform: scale(1); box-shadow: 0 0 0px var(--neon-blue); }
+            to { transform: scale(0.95); box-shadow: 0 0 20px var(--neon-blue); }
+        }
+
+        .power-btn {
+            transition: all 0.2s;
+            border: 1px solid transparent;
+        }
+        .power-btn:active { transform: scale(0.9); }
+        .power-btn.active {
+            border-color: var(--neon-blue);
+            background: rgba(0, 210, 255, 0.2);
+            box-shadow: 0 0 15px var(--neon-blue);
+        }
+
+        .status-box {
+            border-left: 4px solid var(--neon-blue);
+            background: rgba(255, 255, 255, 0.03);
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 5px; }
+        ::-webkit-scrollbar-track { background: #000; }
+        ::-webkit-scrollbar-thumb { background: var(--neon-blue); }
+    </style>
+</head>
+<body class="flex flex-col items-center justify-center p-4">
+
+    <!-- Title -->
+    <h1 class="text-5xl md:text-6xl font-black mb-8 glow-text-white italic tracking-tighter">
+        TICTAC ARENA
+    </h1>
+
+    <!-- Scoreboard -->
+    <div class="grid grid-cols-3 gap-8 mb-8 w-full max-w-md items-center">
+        <div class="text-center">
+            <span class="text-xs text-blue-400 font-bold uppercase tracking-widest">Player X</span>
+            <div id="score-x" class="text-4xl font-black">0</div>
+        </div>
+        <div class="flex justify-center">
+            <div class="h-12 w-[2px] bg-gray-800"></div>
+        </div>
+        <div class="text-center">
+            <span class="text-xs text-pink-500 font-bold uppercase tracking-widest">Player O</span>
+            <div id="score-o" class="text-4xl font-black">0</div>
+        </div>
+    </div>
+
+    <!-- Arena Container -->
+    <div class="arena-container p-6 rounded-3xl w-full max-w-md">
+        
+        <!-- Controls -->
+        <div class="flex gap-2 mb-6">
+            <select id="mode-select" class="flex-1 bg-black border border-gray-800 text-xs p-2 rounded-lg outline-none focus:border-blue-500 transition">
+                <option value="pvp">Versus Friend</option>
+                <option value="easy">Easy Bot</option>
+                <option value="impossible">Impossible Bot</option>
+            </select>
+            <select id="size-select" class="bg-black border border-gray-800 text-xs p-2 rounded-lg outline-none focus:border-blue-500 transition">
+                <option value="3">3x3</option>
+                <option value="4">4x4</option>
+                <option value="5">5x5</option>
+            </select>
+        </div>
+
+        <!-- Powerups -->
+        <div id="power-bar" class="grid grid-cols-2 gap-2 mb-6">
+            <button id="p-eraser" class="power-btn bg-gray-900 py-2 rounded-lg text-[10px] font-bold uppercase tracking-tighter">🧽 Eraser (1)</button>
+            <button id="p-block" class="power-btn bg-gray-900 py-2 rounded-lg text-[10px] font-bold uppercase tracking-tighter">🔒 Blocker (1)</button>
+        </div>
+
+        <!-- Board -->
+        <div id="board" class="grid gap-2 mb-6">
+            <!-- JS Injection -->
+        </div>
+
+        <!-- Status -->
+        <div class="status-box p-3 mb-6">
+            <p id="status" class="text-sm font-medium text-gray-400">Taiyar ho? Player X ki baari!</p>
+        </div>
+
+        <!-- Actions -->
+        <div class="flex gap-3">
+            <button id="reset-btn" class="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-xl transition-all shadow-lg shadow-blue-900/20 active:scale-95">RESTART ARENA</button>
+            <button id="undo-btn" class="bg-gray-800 hover:bg-gray-700 text-white px-6 py-3 rounded-xl transition-all active:scale-95">UNDO</button>
+        </div>
+    </div>
+
+    <p class="mt-8 text-gray-600 text-[10px] uppercase tracking-[0.2em]">Designed for Elite Players</p>
+
+    <script>
+        // Game State
+        let boardSize = 3;
+        let board = [];
+        let currentPlayer = 'X';
+        let gameActive = true;
+        let scores = { X: 0, O: 0 };
+        let history = [];
+        let activePowerup = null;
+        let powerups = {
+            X: { eraser: 1, blocker: 1 },
+            O: { eraser: 1, blocker: 1 }
+        };
+
+        const boardEl = document.getElementById('board');
+        const statusEl = document.getElementById('status');
+        const scoreXEl = document.getElementById('score-x');
+        const scoreOEl = document.getElementById('score-o');
+
+        // Sounds
+        const tapSound = new Audio('https://assets.mixkit.co/active_storage/sfx/2571/2571-preview.mp3');
+        const winSound = new Audio('https://assets.mixkit.co/active_storage/sfx/1435/1435-preview.mp3');
+        tapSound.volume = 0.2;
+
+        function initGame() {
+            boardSize = parseInt(document.getElementById('size-select').value);
+            board = Array(boardSize * boardSize).fill(null);
+            boardEl.style.gridTemplateColumns = `repeat(${boardSize}, 1fr)`;
+            currentPlayer = 'X';
+            gameActive = true;
+            history = [];
+            activePowerup = null;
+            renderBoard();
+            updateUI();
+        }
+
+        function renderBoard() {
+            boardEl.innerHTML = '';
+            board.forEach((cell, i) => {
+                const div = document.createElement('div');
+                div.className = 'cell';
+                if (cell === 'X') {
+                    div.innerText = 'X';
+                    div.classList.add('occupied', 'x-mark');
+                } else if (cell === 'O') {
+                    div.innerText = 'O';
+                    div.classList.add('occupied', 'o-mark');
+                } else if (cell === 'BLOCKED') {
+                    div.innerText = '🔒';
+                    div.classList.add('occupied', 'opacity-30');
+                }
+                div.onclick = () => handleMove(i);
+                boardEl.appendChild(div);
+            });
+        }
+
+        function handleMove(index) {
+            if (!gameActive) return;
+
+            // Powerup Logic
+            if (activePowerup) {
+                usePowerup(index);
+                return;
+            }
+
+            if (board[index]) return;
+
+            executeMove(index, currentPlayer);
+
+            if (gameActive && document.getElementById('mode-select').value !== 'pvp' && currentPlayer === 'O') {
+                setTimeout(botMove, 600);
+            }
+        }
+
+        function executeMove(index, player) {
+            board[index] = player;
+            history.push([...board]);
+            tapSound.play();
+            renderBoard();
+            
+            const win = checkWin(board);
+            if (win) {
+                endGame(win);
+                return;
+            }
+
+            if (!board.includes(null)) {
+                statusEl.innerText = "Match Draw! Arena Reset karian.";
+                gameActive = false;
+                return;
+            }
+
+            currentPlayer = currentPlayer === 'X' ? 'O' : 'X';
+            updateUI();
+        }
+
+        function usePowerup(index) {
+            if (activePowerup === 'eraser' && board[index] && board[index] !== 'BLOCKED') {
+                board[index] = null;
+            } else if (activePowerup === 'blocker' && !board[index]) {
+                board[index] = 'BLOCKED';
+            } else {
+                return; // Invalid target
+            }
+
+            powerups[currentPlayer][activePowerup]--;
+            activePowerup = null;
+            document.querySelectorAll('.power-btn').forEach(b => b.classList.remove('active'));
+            tapSound.play();
+            renderBoard();
+            
+            // Switching turn after powerup
+            currentPlayer = currentPlayer === 'X' ? 'O' : 'X';
+            updateUI();
+        }
+
+        function botMove() {
+            const mode = document.getElementById('mode-select').value;
+            let index;
+            const available = board.map((v, i) => v === null ? i : null).filter(v => v !== null);
+
+            if (mode === 'easy') {
+                index = available[Math.floor(Math.random() * available.length)];
+            } else {
+                index = getBestMove();
+            }
+
+            if (index !== undefined) executeMove(index, 'O');
+        }
+
+        function checkWin(currentBoard) {
+            const size = boardSize;
+            const winLen = size === 3 ? 3 : 4;
+
+            const lines = [];
+
+            // Rows
+            for (let r = 0; r < size; r++) {
+                for (let c = 0; c <= size - winLen; c++) {
+                    let line = [];
+                    for(let i=0; i<winLen; i++) line.push(r * size + c + i);
+                    lines.push(line);
+                }
+            }
+            // Cols
+            for (let c = 0; c < size; c++) {
+                for (let r = 0; r <= size - winLen; r++) {
+                    let line = [];
+                    for(let i=0; i<winLen; i++) line.push((r + i) * size + c);
+                    lines.push(line);
+                }
+            }
+            // Diagonals
+            for (let r = 0; r <= size - winLen; r++) {
+                for (let c = 0; c <= size - winLen; c++) {
+                    let line1 = [], line2 = [];
+                    for(let i=0; i<winLen; i++) {
+                        line1.push((r + i) * size + (c + i));
+                        line2.push((r + i) * size + (c + winLen - 1 - i));
+                    }
+                    lines.push(line1, line2);
+                }
+            }
+
+            for (let line of lines) {
+                const first = currentBoard[line[0]];
+                if (first && first !== 'BLOCKED' && line.every(idx => currentBoard[idx] === first)) {
+                    return { player: first, line };
+                }
+            }
+            return null;
+        }
+
+        function endGame(win) {
+            gameActive = false;
+            win.line.forEach(idx => boardEl.children[idx].classList.add('winning-cell'));
+            statusEl.innerText = `VICTORY! Player ${win.player} ne Arena jeet liya!`;
+            statusEl.classList.add('text-white', 'font-bold');
+            scores[win.player]++;
+            scoreXEl.innerText = scores.X;
+            scoreOEl.innerText = scores.O;
+            winSound.play();
+            confetti({ particleCount: 150, spread: 70, origin: { y: 0.6 } });
+        }
+
+        function updateUI() {
+            statusEl.innerText = `Ab Player ${currentPlayer} ki baari hai.`;
+            statusEl.className = "text-sm font-medium p-1 transition-all " + (currentPlayer === 'X' ? 'text-blue-400' : 'text-pink-400');
+            
+            // Powerup Buttons
+            const p = powerups[currentPlayer];
+            document.getElementById('p-eraser').innerText = `🧽 Eraser (${p.eraser})`;
+            document.getElementById('p-block').innerText = `🔒 Blocker (${p.blocker})`;
+            document.getElementById('p-eraser').disabled = p.eraser <= 0;
+            document.getElementById('p-block').disabled = p.blocker <= 0;
+        }
+
+        // Mini Minimax for Bot
+        function getBestMove() {
+            let bestScore = -Infinity;
+            let move;
+            const available = board.map((v, i) => v === null ? i : null).filter(v => v !== null);
+            
+            for (let i of available) {
+                board[i] = 'O';
+                let score = minimax(board, 0, false);
+                board[i] = null;
+                if (score > bestScore) {
+                    bestScore = score;
+                    move = i;
+                }
+            }
+            return move;
+        }
+
+        function minimax(tempBoard, depth, isMax) {
+            const win = checkWin(tempBoard);
+            if (win) return win.player === 'O' ? 10 - depth : depth - 10;
+            if (!tempBoard.includes(null) || depth > 4) return 0;
+
+            if (isMax) {
+                let best = -Infinity;
+                for(let i=0; i<tempBoard.length; i++){
+                    if(!tempBoard[i]){
+                        tempBoard[i] = 'O';
+                        best = Math.max(best, minimax(tempBoard, depth+1, false));
+                        tempBoard[i] = null;
+                    }
+                }
+                return best;
+            } else {
+                let best = Infinity;
+                for(let i=0; i<tempBoard.length; i++){
+                    if(!tempBoard[i]){
+                        tempBoard[i] = 'X';
+                        best = Math.min(best, minimax(tempBoard, depth+1, true));
+                        tempBoard[i] = null;
+                    }
+                }
+                return best;
+            }
+        }
+
+        // Listeners
+        document.getElementById('p-eraser').onclick = (e) => {
+            activePowerup = 'eraser';
+            e.target.classList.add('active');
+            statusEl.innerText = "Select karian kis ko mitana hai...";
+        };
+        document.getElementById('p-block').onclick = (e) => {
+            activePowerup = 'blocker';
+            e.target.classList.add('active');
+            statusEl.innerText = "Kahan lock lagana hai?";
+        };
+        document.getElementById('reset-btn').onclick = initGame;
+        document.getElementById('size-select').onchange = initGame;
+        document.getElementById('undo-btn').onclick = () => {
+            if (history.length > 1) {
+                history.pop();
+                board = [...history[history.length - 1]];
+                currentPlayer = currentPlayer === 'X' ? 'O' : 'X';
+                renderBoard();
+                updateUI();
+            }
+        };
+
+        initGame();
+    </script>
+</body>
+</html>
+
